@@ -4,21 +4,29 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\ProductRequest;
 use App\Libs\Common;
+use App\Models\Product;
 use App\Models\ProductManager;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use PhpParser\Node\Stmt\TryCatch;
 
 class ProductController extends Controller
 {
   public function viewAll() {
-    $products = ProductManager::getAllProducts();
+    //$products = ProductManager::getAllProducts();
+    $products = Product::all();
     return view("product.products") 
       ->with("products", $products);
   }
 
   public function detail($id){
-    $product = ProductManager::getProductById($id) ;
-    return view("product.detail")
-      ->with("product", $product);
+    //$product = ProductManager::getProductById($id) ;
+    try {
+      $product = Product::findOrFail($id);
+      return view("product.detail") ->with("product", $product);
+    } catch (\Exception $e) {
+      return abort(404);
+    }
   }
 
   public function createForm() {
@@ -26,7 +34,50 @@ class ProductController extends Controller
   }
 
   public function postForm(ProductRequest $request) {
-    return "Coucou";
+    // On créé le produit dans la base de données
+    $product = Product::create($request->all());
+
+    // Maintenant qu'on a l'ID du produit, on stocke l'image
+    if ($request->image != null) {
+      $image = $product->id . '.' . $request->image->extension();
+      $request->file('image')->move(public_path('images'), $image);
+      $product->image = $image;
+      $product->save();
+    }
+    
+    // Nous n'avons pas de vue à retourner, on redirige donc vers l'accueil
+    return redirect('/'); 
+  }
+
+
+  public function modifyForm($id) {
+    try {
+      $product = Product::findOrFail($id);
+      return view("product.modify") ->with("product", $product);
+    } catch (\Exception $e) {
+      return abort(404);
+    }
+  }
+
+  public function putForm($id, ProductRequest $request) {
+    try {
+      $product = Product::findOrFail($id);
+      $product->name = $request->input("name");
+      $product->description = $request->input("description");
+      $product->price = $request->input("price");
+      $product->vat = $request->input("vat");
+      if ($request->image != null) {
+        unlink(public_path('images')."/".$product->image);
+        $image = $product->id . '.' . $request->image->extension();
+        $request->file('image')->move(public_path('images'), $image);
+        $product->image = $image;
+      }
+      $product->save();
+      return redirect('/'); 
+    } catch (\Exception $e) {
+      error_log($e->getMessage());
+      return abort(404);
+    }
   }
 
 
@@ -63,8 +114,8 @@ class ProductController extends Controller
         $total = 0;
         $vat = 0;
         foreach ($cart as $product) {
-            $total = $product->quantity*$product->price;
-            $vat = Common::computeVAT($total, $product->vat);
+            $total += $product->quantity*$product->price;
+            $vat += Common::computeVAT($total, $product->vat);
         }
         return view("cart.index")
             ->withTotal($total)
